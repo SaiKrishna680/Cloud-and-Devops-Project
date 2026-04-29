@@ -372,16 +372,17 @@ pipeline {
                 }
             }
         }
+
         stage('Upload to Nexus') {
-    steps {
-        withCredentials([usernamePassword(credentialsId: 'nexus-creds', usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
-            sh '''
-            curl -v -u $NEXUS_USER:$NEXUS_PASS --upload-file target/devsecops-app-1.0.0-SNAPSHOT.jar \
-            http://host.docker.internal:8081/repository/devsecops-releases/devsecops-app-1.0.0-SNAPSHOT.jar
-            '''
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'nexus-creds', usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
+                    sh '''
+                    curl -v -u $NEXUS_USER:$NEXUS_PASS --upload-file app/target/devsecops-app-1.0.0-SNAPSHOT.jar \
+                    http://host.docker.internal:8081/repository/devsecops-releases/devsecops-app-1.0.0-SNAPSHOT.jar
+                    '''
+                }
+            }
         }
-    }
-}
 
         stage('Docker Build') {
             steps {
