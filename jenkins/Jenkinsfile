@@ -1,0 +1,327 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DevSecOps Jenkins Pipeline — AWS Edition
+   ═══════════════════════════════════════════════════════════════════════════
+
+   PIPELINE FLOW:
+   Checkout → Maven Build → Unit Tests → SonarQube Scan → Quality Gate
+           → Nexus Upload → Docker Build → Trivy Scan → Cosign Sign
+           → ECR Push → Cosign Verify → Update K8s Manifests (GitOps)
+
+   AWS SPECIFIC CHANGES vs local version:
+     ✅ Docker registry = AWS ECR (no docker login password — uses IAM role)
+     ✅ SonarQube at EC2 private IP (in same VPC as Jenkins)
+     ✅ Nexus at EC2 private IP (same VPC)
+     ✅ Trivy uses Docker-in-Docker via Jenkins EC2's Docker socket
+     ✅ Cosign keys stored in AWS SSM Parameter Store (not files)
+     ✅ kubectl configured against EKS via aws eks update-kubeconfig
+
+   CREDENTIALS NEEDED IN JENKINS:
+     sonarqube-token           → Secret text (from SonarQube UI)
+     nexus-credentials         → Username/password
+     cosign-private-key        → Secret file (cosign.key)
+     cosign-public-key         → Secret file (cosign.pub)
+     cosign-password           → Secret text
+     github-credentials        → Username/password or token
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+pipeline {
+
+    agent any
+
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
+
+    environment {
+        // ── Application ──────────────────────────────────────────────────────
+        APP_NAME        = 'devsecops-app'
+        APP_VERSION     = '1.0.0'
+
+        // ── AWS ECR — REPLACE WITH YOUR VALUES FROM terraform output ─────────
+        AWS_REGION      = 'us-east-1'
+        ECR_REGISTRY    = '545586474227.dkr.ecr.us-east-1.amazonaws.com'  // ← terraform output ecr_registry_host
+        ECR_REPO        = "${ECR_REGISTRY}/devsecops-app"
+        IMAGE_TAG       = "${APP_VERSION}-${BUILD_NUMBER}"
+        FULL_IMAGE      = "${ECR_REPO}:${IMAGE_TAG}"
+
+        // ── SonarQube — Private IP from terraform output ─────────────────────
+        SONAR_HOST      = 'http://10.0.1.x:9000'   // ← UPDATE after terraform apply: terraform output sonarqube_private_ip
+        SONAR_PROJECT   = 'devsecops-app'
+
+        // ── Nexus — Private IP from terraform output ─────────────────────────
+        NEXUS_URL       = 'http://10.0.1.x:8081'   // ← UPDATE after terraform apply: terraform output nexus_private_ip
+        NEXUS_REPO      = 'maven-snapshots'
+
+        // ── EKS ───────────────────────────────────────────────────────────────
+        EKS_CLUSTER     = 'devsecops-eks'           // ← terraform output eks_cluster_name
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+
+        // ── STAGE 1: Checkout ─────────────────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                echo '📥 Checking out source code...'
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    env.GIT_BRANCH_NAME  = sh(script: "git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
+                }
+                echo "✅ Branch: ${GIT_BRANCH_NAME} | Commit: ${GIT_COMMIT_SHORT}"
+            }
+        }
+
+        // ── STAGE 2: Maven Build ──────────────────────────────────────────────
+        stage('Maven Build') {
+            steps {
+                echo '🔨 Compiling with Maven...'
+                dir('app') {
+                    sh 'mvn clean compile -B -Dmaven.test.skip=true --no-transfer-progress'
+                }
+            }
+        }
+
+        // ── STAGE 3: Unit Tests ───────────────────────────────────────────────
+        stage('Unit Tests') {
+            steps {
+                echo '🧪 Running unit tests + JaCoCo coverage...'
+                dir('app') {
+                    sh 'mvn test jacoco:report -B --no-transfer-progress'
+                }
+            }
+            post {
+                always {
+                    junit 'app/target/surefire-reports/*.xml'
+                    jacoco(
+                        execPattern:        'app/target/jacoco.exec',
+                        classPattern:       'app/target/classes',
+                        sourcePattern:      'app/src/main/java',
+                        minimumLineCoverage: '70'
+                    )
+                }
+            }
+        }
+
+        // ── STAGE 4: SonarQube Analysis ───────────────────────────────────────
+        stage('SonarQube Analysis') {
+            steps {
+                echo '🔍 Running SonarQube SAST scan...'
+                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                    dir('app') {
+                        sh """
+                            mvn sonar:sonar -B --no-transfer-progress \\
+                                -Dsonar.host.url=${SONAR_HOST} \\
+                                -Dsonar.login=${SONAR_TOKEN} \\
+                                -Dsonar.projectKey=${SONAR_PROJECT} \\
+                                -Dsonar.projectVersion=${APP_VERSION}-${BUILD_NUMBER} \\
+                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                        """
+                    }
+                }
+            }
+        }
+
+        // ── STAGE 5: Quality Gate ─────────────────────────────────────────────
+        stage('Quality Gate') {
+            steps {
+                echo '🚦 Checking SonarQube Quality Gate...'
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+                echo '✅ Quality Gate PASSED.'
+            }
+        }
+
+        // ── STAGE 6: Upload to Nexus ──────────────────────────────────────────
+        stage('Upload to Nexus') {
+            steps {
+                echo '📦 Uploading JAR to Nexus...'
+                withCredentials([usernamePassword(
+                    credentialsId: 'nexus-credentials',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    dir('app') {
+                        sh """
+                            mvn deploy -DskipTests -B --no-transfer-progress \\
+                                -Dnexus.url=${NEXUS_URL} \\
+                                -DaltDeploymentRepository=nexus::default::${NEXUS_URL}/repository/${NEXUS_REPO}/
+                        """
+                    }
+                }
+                echo '✅ Artifact uploaded to Nexus.'
+            }
+        }
+
+        // ── STAGE 7: Docker Build ─────────────────────────────────────────────
+        stage('Docker Build') {
+            steps {
+                echo "🐳 Building Docker image: ${FULL_IMAGE}"
+                sh """
+                    docker build \\
+                        -f docker/Dockerfile \\
+                        -t ${FULL_IMAGE} \\
+                        -t ${ECR_REPO}:latest \\
+                        --label git.commit=${GIT_COMMIT_SHORT} \\
+                        --label build.number=${BUILD_NUMBER} \\
+                        .
+                """
+                echo '✅ Docker image built.'
+            }
+        }
+
+        // ── STAGE 8: Trivy Scan ───────────────────────────────────────────────
+        stage('Trivy Scan') {
+            steps {
+                echo '🛡️  Running Trivy vulnerability scan — FAIL on HIGH/CRITICAL...'
+                sh """
+                    docker run --rm \\
+                        -v /var/run/docker.sock:/var/run/docker.sock \\
+                        -v trivy-cache:/root/.cache/trivy \\
+                        aquasec/trivy:latest image \\
+                        --exit-code 1 \\
+                        --severity HIGH,CRITICAL \\
+                        --no-progress \\
+                        --format table \\
+                        --output trivy-report.txt \\
+                        ${FULL_IMAGE}
+                """
+                echo '✅ Trivy scan PASSED — no HIGH/CRITICAL vulnerabilities.'
+            }
+            post {
+                always  { archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true }
+                failure { echo '❌ TRIVY FAILED: HIGH/CRITICAL found. Fix vulnerabilities before proceeding.' }
+            }
+        }
+
+        // ── STAGE 9: ECR Login & Push ──────────────────────────────────────────
+        // WHY NO PASSWORD: Jenkins EC2 has an IAM role with ECR access.
+        //                  aws ecr get-login-password generates a temp token.
+        //                  No credentials to store/rotate!
+        stage('ECR Login') {
+            steps {
+                echo "🔑 Authenticating Docker with AWS ECR..."
+                sh """
+                    aws ecr get-login-password --region ${AWS_REGION} | \\
+                        docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                """
+                echo '✅ Logged in to ECR.'
+            }
+        }
+
+        // ── STAGE 10: Cosign Sign ─────────────────────────────────────────────
+        stage('Cosign Sign') {
+            steps {
+                echo '✍️  Signing Docker image with Cosign...'
+                withCredentials([
+                    file(credentialsId:   'cosign-private-key', variable: 'COSIGN_KEY'),
+                    string(credentialsId: 'cosign-password',    variable: 'COSIGN_PASSWORD')
+                ]) {
+                    sh """
+                        docker run --rm \\
+                            -v \${COSIGN_KEY}:/cosign.key:ro \\
+                            -v /var/run/docker.sock:/var/run/docker.sock \\
+                            -e COSIGN_PASSWORD=\${COSIGN_PASSWORD} \\
+                            gcr.io/projectsigstore/cosign:latest \\
+                            sign --key /cosign.key --yes ${FULL_IMAGE}
+                    """
+                }
+                echo '✅ Image signed.'
+            }
+        }
+
+        // ── STAGE 11: Push to ECR ─────────────────────────────────────────────
+        stage('Push to ECR') {
+            steps {
+                echo "📤 Pushing image to ECR: ${FULL_IMAGE}"
+                sh """
+                    docker push ${FULL_IMAGE}
+                    docker push ${ECR_REPO}:latest
+                """
+                echo '✅ Image pushed to ECR.'
+            }
+        }
+
+        // ── STAGE 12: Cosign Verify ───────────────────────────────────────────
+        stage('Cosign Verify') {
+            steps {
+                echo '🔐 Verifying image signature...'
+                withCredentials([file(credentialsId: 'cosign-public-key', variable: 'COSIGN_PUB')]) {
+                    sh """
+                        docker run --rm \\
+                            -v \${COSIGN_PUB}:/cosign.pub:ro \\
+                            gcr.io/projectsigstore/cosign:latest \\
+                            verify --key /cosign.pub ${FULL_IMAGE}
+                    """
+                }
+                echo '✅ Signature verified.'
+            }
+        }
+
+        // ── STAGE 13: Update kubeconfig for EKS ──────────────────────────────
+        stage('Configure kubectl') {
+            steps {
+                echo '☸️  Configuring kubectl for AWS EKS...'
+                sh """
+                    aws eks update-kubeconfig \\
+                        --region ${AWS_REGION} \\
+                        --name ${EKS_CLUSTER}
+                """
+                sh 'kubectl get nodes'
+                echo '✅ kubectl configured for EKS.'
+            }
+        }
+
+        // ── STAGE 14: Update K8s Manifest & GitOps ────────────────────────────
+        stage('Update K8s Manifest') {
+            steps {
+                echo '📝 Updating deployment.yaml with new image tag for Argo CD...'
+                withCredentials([usernamePassword(
+                    credentialsId:    'github-credentials',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASS'
+                )]) {
+                    sh """
+                        git config user.email "jenkins@devsecops-aws.local"
+                        git config user.name  "Jenkins CI"
+
+                        # Update the image tag in k8s/deployment.yaml
+                        sed -i "s|image: .*devsecops-app:.*|image: ${FULL_IMAGE}|" k8s/deployment.yaml
+
+                        git add k8s/deployment.yaml
+                        git commit -m "ci: update image to ${FULL_IMAGE} [skip ci]" || echo "No changes"
+                        git push https://\${GIT_USER}:\${GIT_PASS}@github.com/Deepak122006/Devops.git HEAD:main
+                    """
+                }
+                echo '✅ Manifest updated — Argo CD will auto-sync shortly.'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo """
+            ╔══════════════════════════════════════════════════════════╗
+            ║  ✅  PIPELINE SUCCEEDED                                  ║
+            ║  Image: ${FULL_IMAGE}     ║
+            ║  Scanned ✓ | Signed ✓ | Pushed to ECR ✓ | GitOps ✓    ║
+            ╚══════════════════════════════════════════════════════════╝
+            """
+        }
+        failure {
+            echo '❌ PIPELINE FAILED — Check stage logs above.'
+        }
+        always {
+            sh 'docker image prune -f || true'
+            cleanWs()
+        }
+    }
+}

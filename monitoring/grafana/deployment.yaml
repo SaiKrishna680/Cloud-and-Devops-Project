@@ -1,0 +1,110 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Grafana Deployment — Kubernetes
+#
+# WHY: Grafana provides beautiful dashboards over Prometheus data.
+#      Pre-configured with Prometheus data source and Spring Boot dashboard.
+#
+# Access: http://localhost:30030
+# Default credentials: admin / admin123
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: devsecops
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472    # Grafana's UID
+        fsGroup:   472
+
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.3
+          ports:
+            - name:          http
+              containerPort: 3000
+          env:
+            # ── Admin Credentials ──────────────────────────────────────────
+            - name:  GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name:  GF_SECURITY_ADMIN_PASSWORD
+              value: "admin123"
+
+            # ── Auto-provision data source & dashboards ────────────────────
+            - name:  GF_PATHS_PROVISIONING
+              value: "/etc/grafana/provisioning"
+
+            # ── Disable signup (not a public dashboard) ────────────────────
+            - name:  GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+
+            # ── Anonymous access for demo (disable in production) ──────────
+            - name:  GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu:    "100m"
+            limits:
+              memory: "256Mi"
+              cpu:    "200m"
+
+          volumeMounts:
+            - name:      grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name:      grafana-storage
+              mountPath: /var/lib/grafana
+
+          # ── Readiness Probe ────────────────────────────────────────────────
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+      volumes:
+        # ── Auto-configure Prometheus data source ──────────────────────────
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+
+        - name: grafana-storage
+          emptyDir: {}    # Replace with PersistentVolume in prod
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Grafana ConfigMap — Prometheus Data Source
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: devsecops
+data:
+  prometheus.yaml: |
+    apiVersion: 1
+    datasources:
+      - name:            Prometheus
+        type:            prometheus
+        access:          proxy
+        url:             http://prometheus-svc:9090
+        isDefault:       true
+        editable:        true
+        jsonData:
+          httpMethod:    POST
+          timeInterval:  15s

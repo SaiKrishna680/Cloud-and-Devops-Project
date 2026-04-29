@@ -1,0 +1,12 @@
+variable "project_name" { type = string }
+variable "aws_region" { type = string }
+variable "ami_id" { type = string }
+variable "key_pair_name" { type = string }
+variable "public_subnet_id" { type = string }
+variable "jenkins_sg_id" { type = string }
+variable "sonarqube_sg_id" { type = string }
+variable "nexus_sg_id" { type = string }
+variable "jenkins_instance_type" { type = string }
+variable "sonarqube_instance_type" { type = string }
+variable "nexus_instance_type" { type = string }
+variable "ecr_registry" { type = string }

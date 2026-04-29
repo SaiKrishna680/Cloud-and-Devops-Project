@@ -1,0 +1,64 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Argo CD Application — devsecops-app
+#
+# WHY: This manifest tells Argo CD:
+#   1. WHERE the Git repository is (source of truth)
+#   2. WHAT path within the repo contains K8s manifests
+#   3. WHERE to deploy (destination cluster + namespace)
+#   4. HOW to sync (automated, self-heal, prune stale resources)
+#
+# When Jenkins pushes a new image tag to deployment.yaml in Git,
+# Argo CD detects the change and auto-syncs to the cluster.
+#
+# SETUP: kubectl apply -f argocd/application.yaml -n argocd
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devsecops-app
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: devsecops-app
+  # Finalizer ensures ArgoCD cleans up K8s resources if the Application is deleted
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+
+  # ── Source: Where the K8s manifests live ───────────────────────────────────
+  source:
+    # ⚠️  CHANGE THIS to your actual GitHub repository URL
+    repoURL: https://github.com/Deepak122006/Devops.git
+    targetRevision: main       # Branch to watch
+    path: k8s                  # Folder containing manifests (k8s/)
+
+  # ── Destination: Where to deploy ───────────────────────────────────────────
+  destination:
+    server:    https://kubernetes.default.svc  # In-cluster (Docker Desktop)
+    namespace: devsecops
+
+  # ── Sync Policy ────────────────────────────────────────────────────────────
+  syncPolicy:
+    automated:
+      prune:    true   # Delete K8s resources removed from Git
+      selfHeal: true   # Re-sync if cluster state drifts from Git
+    syncOptions:
+      - CreateNamespace=true    # Auto-create namespace if missing
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration:    5s
+        factor:      2
+        maxDuration: 3m
+
+  # ── Health Checks ──────────────────────────────────────────────────────────
+  # ArgoCD checks pod readiness before marking sync as healthy
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # Ignore HPA-managed replica changes

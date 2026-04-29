@@ -1,0 +1,117 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Jenkins Configuration as Code (JCasC)
+#
+# WHY: Instead of clicking through the Jenkins UI to configure everything,
+#      this YAML file auto-configures Jenkins on startup.
+#      Mount this file at: /var/jenkins_home/casc_configs/jenkins.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Jenkins System Configuration ─────────────────────────────────────────────
+jenkins:
+  systemMessage: |
+    =======================================================
+    DevSecOps CI/CD Pipeline — Jenkins
+    Powered by Jenkins Configuration as Code (JCasC)
+    =======================================================
+
+  numExecutors: 4
+  mode: NORMAL
+  quietPeriod: 5
+
+  # ── Security ───────────────────────────────────────────────────────────────
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: ${JENKINS_ADMIN_PASSWORD:-admin123}  # Override via env var
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  # ── Tools ──────────────────────────────────────────────────────────────────
+  # Maven installed automatically
+  # Docker uses host socket
+
+# ── Tool Configuration ────────────────────────────────────────────────────────
+tool:
+  maven:
+    installations:
+      - name: "Maven-3.9"
+        properties:
+          - installSource:
+              installers:
+                - maven:
+                    id: "3.9.6"
+
+  jdk:
+    installations:
+      - name: "JDK-17"
+        properties:
+          - installSource:
+              installers:
+                - adoptOpenJdkInstaller:
+                    id: "jdk-17.0.9+9"
+
+# ── SonarQube Integration ─────────────────────────────────────────────────────
+unclassified:
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: true
+    installations:
+      - name: "SonarQube"
+        serverUrl: "http://sonarqube:9000"
+        credentialsId: "sonarqube-token"
+        triggers:
+          skipScmCause: false
+          skipUpstreamCause: false
+
+  # ── Global Pipeline Libraries ──────────────────────────────────────────────
+  globalLibraries:
+    libraries: []
+
+  # ── Email Notification ─────────────────────────────────────────────────────
+  mailServer:
+    address: "jenkins@devsecops.local"
+
+# ── Credentials ───────────────────────────────────────────────────────────────
+# NOTE: In production use a secrets manager (Vault, AWS SM).
+# These are placeholder credential definitions — actual values
+# must be added via Jenkins UI or environment variables.
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          # SonarQube token (string secret)
+          - string:
+              id: "sonarqube-token"
+              description: "SonarQube Authentication Token"
+              secret: ${SONAR_TOKEN:-changeme}
+
+          # Nexus username/password
+          - usernamePassword:
+              id: "nexus-credentials"
+              description: "Nexus Repository Credentials"
+              username: ${NEXUS_USER:-admin}
+              password: ${NEXUS_PASS:-admin123}
+
+          # Docker registry credentials
+          - usernamePassword:
+              id: "docker-registry-credentials"
+              description: "Docker Registry Credentials"
+              username: ${DOCKER_USER:-admin}
+              password: ${DOCKER_PASS:-admin123}
+
+          # GitHub credentials for manifest updates
+          - usernamePassword:
+              id: "github-credentials"
+              description: "GitHub Credentials for manifest push"
+              username: ${GITHUB_USER:-yourusername}
+              password: ${GITHUB_TOKEN:-yourtoken}
+
+          # Cosign password
+          - string:
+              id: "cosign-password"
+              description: "Cosign private key password"
+              secret: ${COSIGN_PASSWORD:-changeme}

@@ -1,0 +1,116 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Prometheus Deployment — Kubernetes
+#
+# WHY: Prometheus scrapes metrics from all targets defined in prometheus.yml.
+#      For our app, it scrapes /actuator/prometheus every 15 seconds.
+#      Grafana then queries Prometheus to display dashboards.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: devsecops
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      # ── Security Context ───────────────────────────────────────────────────
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534   # nobody user
+        fsGroup:   65534
+
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.48.1
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--web.enable-lifecycle"
+            - "--storage.tsdb.retention.time=7d"
+          ports:
+            - name:          http
+              containerPort: 9090
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "100m"
+            limits:
+              memory: "512Mi"
+              cpu:    "500m"
+          volumeMounts:
+            - name:      prometheus-config
+              mountPath: /etc/prometheus
+            - name:      prometheus-storage
+              mountPath: /prometheus
+
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config  # Loaded from prometheus.yml below
+        - name: prometheus-storage
+          emptyDir: {}              # Replace with PersistentVolume in prod
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Prometheus ConfigMap — Scrape Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: devsecops
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s   # How often to scrape targets
+      evaluation_interval: 15s   # How often to evaluate rules
+
+    scrape_configs:
+
+      # ── Prometheus self-monitoring ────────────────────────────────────────
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # ── Spring Boot App Metrics ──────────────────────────────────────────
+      # Prometheus discovers all pods with annotation prometheus.io/scrape=true
+      - job_name: 'devsecops-app'
+        metrics_path: /actuator/prometheus
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - devsecops
+        relabel_configs:
+          # Only scrape pods with prometheus.io/scrape=true annotation
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          # Use the port from prometheus.io/port annotation
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: $1
+          # Set job label to app name
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: job
+
+      # ── Kubernetes cluster metrics ────────────────────────────────────────
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)

@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# terraform/terraform.tfvars.example
+#
+# HOW TO USE:
+#   1. Copy this file: cp terraform.tfvars.example terraform.tfvars
+#   2. Fill in YOUR values below
+#   3. NEVER commit terraform.tfvars — it is in .gitignore
+#
+# REQUIRED CHANGES:
+#   ✏️  aws_region          → your preferred region
+#   ✏️  allowed_ssh_cidr    → your HOME IP (run: curl ifconfig.me)
+#   ✏️  allowed_access_cidr → your HOME IP (same as above)
+#   ✏️  owner               → your name
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── General ──────────────────────────────────────────────────────────────────
+aws_region   = "us-east-1"      # Change to your nearest region
+environment  = "dev"
+owner        = "your-name"       # ✏️ Change this
+project_name = "devsecops"
+
+# ── Networking ───────────────────────────────────────────────────────────────
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
+
+# ⚠️  SECURITY: Restrict to YOUR IP only (run: curl ifconfig.me)
+# Example: allowed_ssh_cidr = "203.0.113.25/32"
+allowed_ssh_cidr    = "0.0.0.0/0"   # ✏️ CHANGE THIS!
+allowed_access_cidr = "0.0.0.0/0"   # ✏️ CHANGE THIS!
+
+# ── EC2 Instance Types ────────────────────────────────────────────────────────
+# t3.medium = 2 vCPU, 4 GB RAM ≈ $0.04/hr
+# t3.small  = 2 vCPU, 2 GB RAM ≈ $0.02/hr
+jenkins_instance_type   = "t3.medium"
+sonarqube_instance_type = "t3.medium"
+nexus_instance_type     = "t3.small"
+
+# ── SSH Key Pair ──────────────────────────────────────────────────────────────
+key_pair_name = "devsecops-key"
+
+# ── EKS Cluster ───────────────────────────────────────────────────────────────
+eks_cluster_name       = "devsecops-eks"
+eks_cluster_version    = "1.29"
+eks_node_instance_type = "t3.medium"
+eks_desired_nodes      = 2
+eks_min_nodes          = 1
+eks_max_nodes          = 3
+
+# ── ECR ───────────────────────────────────────────────────────────────────────
+ecr_repo_name             = "devsecops-app"
+ecr_image_retention_count = 10
+
+# ── Terraform State ───────────────────────────────────────────────────────────
+# Create this bucket first (must be globally unique):
+# aws s3api create-bucket --bucket my-tf-state-devsecops-123 --region us-east-1
+terraform_state_bucket = "my-tf-state-devsecops-123"  # ✏️ CHANGE THIS!

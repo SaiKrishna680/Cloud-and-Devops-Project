@@ -1,0 +1,33 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Kubernetes Service — devsecops-app
+#
+# WHY: The Service provides a stable network endpoint for the Deployment.
+#      Pods can be recreated (new IPs) but the Service IP remains constant.
+#
+# NodePort exposes the app on every cluster node at port 30080,
+# which means you can access it at http://localhost:30080 on Docker Desktop.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: devsecops-app-svc
+  namespace: devsecops
+  labels:
+    app:                          devsecops-app
+    app.kubernetes.io/name:       devsecops-app
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    # Prometheus ServiceMonitor will use this annotation
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   "8080"
+spec:
+  type: NodePort
+  selector:
+    app: devsecops-app   # Routes traffic to pods with this label
+  ports:
+    - name:       http
+      protocol:   TCP
+      port:       80         # Service port (cluster-internal)
+      targetPort: 8080       # Container port
+      nodePort:   30080      # External port on localhost (Docker Desktop)

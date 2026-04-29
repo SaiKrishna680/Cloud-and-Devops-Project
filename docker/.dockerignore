@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────────
+# .dockerignore — Prevent unnecessary files entering build context
+#
+# WHY: Smaller build context = faster Docker builds.
+#      Also prevents secrets/IDE config leaking into images.
+# ─────────────────────────────────────────────────────────────────
+
+# Maven target directory (built artifacts — re-built inside Docker)
+app/target/
+
+# IDE settings
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.code-workspace
+
+# Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Jenkins workspace files
+jenkins/workspace/
+
+# Docker compose override
+docker-compose.override.yml
+
+# Kubernetes secrets (never bake into image)
+*.kubeconfig
+cosign.key
+cosign.pub
+
+# Documentation
+*.md
+docs/
+
+# Scripts (not needed in image)
+scripts/
+Makefile

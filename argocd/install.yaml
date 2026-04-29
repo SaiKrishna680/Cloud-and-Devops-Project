@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# argocd/install.yaml — Reference to Argo CD official install
+#
+# WHY LINK INSTEAD OF EMBED:
+#   The official Argo CD install.yaml is ~7000 lines containing CRDs,
+#   RBAC, Services, Deployments. Embedding it risks version drift.
+#   We reference the stable release and pin it to a specific version
+#   for reproducibility.
+#
+# HOW TO INSTALL ARGO CD (run in PowerShell):
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   STEP 1 — Create namespace:
+#   kubectl create namespace argocd
+#
+#   STEP 2 — Apply stable manifest:
+#   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.10.0/manifests/install.yaml
+#
+#   STEP 3 — Patch server to NodePort (Docker Desktop access):
+#   kubectl patch svc argocd-server -n argocd -p '{\"spec\": {\"type\": \"NodePort\", \"ports\": [{\"port\": 443, \"nodePort\": 30443}]}}'
+#
+#   STEP 4 — Wait for Argo CD to be ready:
+#   kubectl rollout status deployment/argocd-server -n argocd --timeout=180s
+#
+#   STEP 5 — Get initial admin password:
+#   $pass = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"
+#   [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($pass))
+#
+#   STEP 6 — Apply the application manifest:
+#   kubectl apply -f argocd/application.yaml -n argocd
+#
+#   STEP 7 — Access Argo CD UI:
+#   https://localhost:30443
+#   Username: admin
+#   Password: (from Step 5)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# ARGO CD VERSION: v2.10.0 (stable)
+# INSTALLATION URL:
+# https://raw.githubusercontent.com/argoproj/argo-cd/v2.10.0/manifests/install.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# setup.ps1 handles all steps above automatically.
+# You can also run them manually by following the STEP X instructions above.
+#
+# TROUBLESHOOTING:
+#   - If argocd-server pod is stuck in Pending: check Docker Desktop has ≥8GB RAM
+#   - If LoadBalancer stays Pending:  NodePort patch above fixes this for Docker Desktop
+#   - If login fails: re-run Step 5 to get a fresh password

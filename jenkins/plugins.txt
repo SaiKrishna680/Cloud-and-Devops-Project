@@ -1,0 +1,53 @@
+# Jenkins Plugins List
+# Format: plugin-id:version (or plugin-id:latest)
+#
+# WHY THESE PLUGINS:
+#  - git            → Checkout code from GitHub
+#  - workflow-*     → Pipeline / Groovy DSL support
+#  - sonar          → SonarQube quality gate integration
+#  - nexus-artifact-uploader → Publish JARs to Nexus
+#  - docker-plugin  → Docker build/run in pipeline
+#  - docker-workflow→ Docker DSL in Jenkinsfile
+#  - credentials    → Secure credential storage
+#  - blueocean      → Modern pipeline UI
+
+# Core pipeline support
+workflow-aggregator:latest
+pipeline-stage-view:latest
+pipeline-graph-analysis:latest
+
+# Git / GitHub
+git:latest
+github:latest
+github-branch-source:latest
+
+# SonarQube
+sonar:latest
+
+# Nexus
+nexus-artifact-uploader:latest
+
+# Docker
+docker-plugin:latest
+docker-workflow:latest
+docker-commons:latest
+
+# Credentials & Security
+credentials:latest
+credentials-binding:latest
+plain-credentials:latest
+ssh-credentials:latest
+
+# Notifications & Reporting
+email-ext:latest
+build-timeout:latest
+timestamper:latest
+ws-cleanup:latest
+
+# Blue Ocean (modern UI)
+blueocean:latest
+
+# Misc utilities
+ansicolor:latest
+configuration-as-code:latest
+job-dsl:latest

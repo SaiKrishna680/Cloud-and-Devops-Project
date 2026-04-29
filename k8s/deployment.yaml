@@ -1,0 +1,131 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Kubernetes Deployment — devsecops-app
+#
+# WHY: The Deployment manages Pod lifecycle — rolling updates, rollback,
+#      desired replica count, and health checks.
+#
+# ⚠️  IMAGE TAG: Jenkins pipeline (Stage 14) updates this via sed.
+#              ArgoCD then auto-syncs the change to EKS.
+#              Image lives in AWS ECR — EKS nodes pull using IAM role.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devsecops-app
+  namespace: devsecops
+  labels:
+    app:                          devsecops-app
+    app.kubernetes.io/name:       devsecops-app
+    app.kubernetes.io/version:    "1.0.0"
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    # ArgoCD uses this to track the current deployed version
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: devsecops-app
+
+  # ── Rolling Update Strategy ────────────────────────────────────────────────
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge:       1   # Allow 1 extra pod during update
+      maxUnavailable: 0   # Never go below desired replica count
+
+  template:
+    metadata:
+      labels:
+        app:     devsecops-app
+        version: "1.0.0"
+      annotations:
+        # Prometheus auto-discovery annotations
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8080"
+        prometheus.io/path:   "/actuator/prometheus"
+
+    spec:
+      # ── Security Context (Pod level) ───────────────────────────────────────
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup:   1001
+
+      # ── Image Pull: NO imagePullSecrets needed for ECR ──────────────────────
+      # EKS worker nodes have AmazonEC2ContainerRegistryReadOnly IAM policy
+      # attached (see terraform/modules/eks/main.tf). AWS handles auth.
+      # imagePullSecrets is only needed for non-ECR private registries.
+
+      containers:
+        - name: devsecops-app
+
+          # ── IMAGE: Updated by Jenkins pipeline (Stage 14) ──────────────
+          # Format: <account>.dkr.ecr.<region>.amazonaws.com/devsecops-app:<ver>-<build>
+          # Get ECR URL from: terraform output ecr_repository_url
+          image: 545586474227.dkr.ecr.us-east-1.amazonaws.com/devsecops-app:1.0.0-1
+
+          imagePullPolicy: Always
+
+          # ── Ports ──────────────────────────────────────────────────────────
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # ── Environment Variables ──────────────────────────────────────────
+          env:
+            - name:  SPRING_PROFILES_ACTIVE
+              value: "production"
+            - name:  JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+          # ── Resource Limits ────────────────────────────────────────────────
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "250m"
+            limits:
+              memory: "512Mi"
+              cpu:    "500m"
+
+          # ── Liveness Probe (restart if app hangs) ─────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds:       30
+            failureThreshold:    3
+
+          # ── Readiness Probe (remove from load balancer if not ready) ──────
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds:       10
+            failureThreshold:    3
+
+          # ── Container Security Context ─────────────────────────────────────
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem:   true
+            capabilities:
+              drop:
+                - ALL
+
+          # ── Volume Mounts (for read-only root filesystem) ─────────────────
+          volumeMounts:
+            - name:      tmp-volume
+              mountPath: /tmp
+
+      # ── Volumes ────────────────────────────────────────────────────────────
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+
+      # ── Scheduling ────────────────────────────────────────────────────────
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

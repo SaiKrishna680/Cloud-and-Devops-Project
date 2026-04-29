@@ -1,0 +1,15 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Kubernetes Namespace — devsecops
+#
+# WHY: Namespaces provide isolation between different applications on the
+#      same cluster. All DevSecOps app resources live in this namespace.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devsecops
+  labels:
+    app.kubernetes.io/name:       devsecops
+    app.kubernetes.io/managed-by: argocd
+    environment:                  production

@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .gitignore — DevSecOps Pipeline Repository
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Security: NEVER commit these ─────────────────────────────────────────────
+cosign-keys/cosign.key      # Private signing key — KEEP SECRET
+cosign-keys/*.key
+*.p12
+*.pfx
+*.pem
+
+# Secret override files
+secrets.env
+.env
+*.env.local
+
+# ── Maven build artifacts ──────────────────────────────────────────────────
+app/target/
+app/.mvn/
+!app/.mvn/wrapper/
+!app/.mvn/wrapper/maven-wrapper.properties
+
+# ── IDE files ─────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.code-workspace
+.eclipse/
+.classpath
+.project
+.settings/
+
+# ── OS files ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ── Temporary & log files ──────────────────────────────────────────────────
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# ── Docker volumes (host filesystem) ──────────────────────────────────────
+jenkins_home/
+nexus-data/
+
+# ── Test reports (generated) ──────────────────────────────────────────────
+trivy-report.txt
+coverage/
+
+# ── Terraform ──────────────────────────────────────────────────────────────
+# Provider binaries (downloaded by 'terraform init' — can be 500MB+)
+terraform/.terraform/
+# State files (contain sensitive data — use remote state in S3)
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+
+# ── Kubernetes secrets (manage via kubectl, NOT git) ──────────────────────
+k8s/secret-generated.yaml
+
+# ── Cosign keys directory — keep pub, not priv ────────────────────────────
+# cosign-keys/cosign.pub is SAFE to commit (public key)
+# cosign-keys/cosign.key must NEVER be committed
+cosign-keys/cosign.key
