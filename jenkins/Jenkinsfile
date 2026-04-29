@@ -348,22 +348,22 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-    steps {
-        dir('app') {
-            withSonarQubeEnv('sonarqube') {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_AUTH_TOKEN')]) {
-                    sh '''
-                    mvn sonar:sonar \
-                    -Dsonar.projectKey=devsecops-app \
-                    -Dsonar.projectName=devsecops-app \
-                    -Dsonar.host.url=http://host.docker.internal:9000 \
-                    -Dsonar.login=$SONAR_AUTH_TOKEN
-                    '''
+            steps {
+                dir('app') {
+                    withSonarQubeEnv('sonarqube') {
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_AUTH_TOKEN')]) {
+                            sh '''
+                            mvn sonar:sonar \
+                            -Dsonar.projectKey=devsecops-app \
+                            -Dsonar.projectName=devsecops-app \
+                            -Dsonar.host.url=http://host.docker.internal:9000 \
+                            -Dsonar.login=$SONAR_AUTH_TOKEN
+                            '''
+                        }
+                    }
                 }
             }
         }
-    }
-}
 
         stage('Docker Build') {
             steps {
