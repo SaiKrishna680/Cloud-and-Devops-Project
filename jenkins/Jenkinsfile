@@ -376,10 +376,10 @@ pipeline {
         stage('Upload to Nexus') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'nexus-creds', usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
-                sh '''
-                curl -v -u $NEXUS_USER:$NEXUS_PASS --upload-file app/target/devsecops-app-1.0.0-SNAPSHOT.jar \
-                http://host.docker.internal:8081/repository/devsecops-releases/com/devsecops/devsecops-app/1.0.0/devsecops-app-1.0.0.jar
-                '''
+                    sh '''
+                    curl -v -u $NEXUS_USER:$NEXUS_PASS --upload-file app/target/devsecops-app-1.0.0-SNAPSHOT.jar \
+                    http://host.docker.internal:8081/repository/devsecops-releases/com/devsecops/devsecops-app/1.0.0/devsecops-app-1.0.0.jar
+                    '''
                 }
             }
         }
@@ -387,6 +387,19 @@ pipeline {
         stage('Docker Build') {
             steps {
                 sh 'docker build -f docker/Dockerfile -t devsecops-app:latest .'
+            }
+        }
+
+        stage('Trivy Scan') {
+            steps {
+                sh '''
+                docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                aquasec/trivy:latest image \
+                --exit-code 0 \
+                --severity HIGH,CRITICAL \
+                devsecops-app:latest
+                '''
             }
         }
 
