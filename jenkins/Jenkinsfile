@@ -326,57 +326,54 @@
 //     }
 // }
 pipeline {
-agent any
+    agent any
 
-```
-tools {
-    maven 'maven'
-}
-
-stages {
-
-    stage('Check Workspace') {
-        steps {
-            sh 'pwd'
-            sh 'ls -la'
-        }
+    tools {
+        maven 'maven'
     }
 
-    stage('Check Docker') {
-        steps {
-            sh 'docker version'
-        }
-    }
+    stages {
 
-    stage('SonarQube Analysis') {
-        steps {
-            withSonarQubeEnv('sonarqube') {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_AUTH_TOKEN')]) {
-                    sh '''
-                    mvn sonar:sonar \
-                    -Dsonar.projectKey=devsecops-app \
-                    -Dsonar.projectName=devsecops-app \
-                    -Dsonar.host.url=http://host.docker.internal:9000 \
-                    -Dsonar.login=$SONAR_AUTH_TOKEN
-                    '''
+        stage('Check Workspace') {
+            steps {
+                sh 'pwd'
+                sh 'ls -la'
+            }
+        }
+
+        stage('Check Docker') {
+            steps {
+                sh 'docker version'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonarqube') {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_AUTH_TOKEN')]) {
+                        sh '''
+                        mvn sonar:sonar \
+                        -Dsonar.projectKey=devsecops-app \
+                        -Dsonar.projectName=devsecops-app \
+                        -Dsonar.host.url=http://host.docker.internal:9000 \
+                        -Dsonar.login=$SONAR_AUTH_TOKEN
+                        '''
+                    }
                 }
             }
         }
-    }
 
-    stage('Docker Build') {
-        steps {
-            sh 'docker build -t devsecops-app:latest .'
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t devsecops-app:latest .'
+            }
+        }
+
+        stage('Docker Run') {
+            steps {
+                sh 'docker rm -f devsecops-container || true'
+                sh 'docker run -d --name devsecops-container -p 8090:8080 devsecops-app:latest'
+            }
         }
     }
-
-    stage('Docker Run') {
-        steps {
-            sh 'docker rm -f devsecops-container || true'
-            sh 'docker run -d --name devsecops-container -p 8090:8080 devsecops-app:latest'
-        }
-    }
-}
-```
-
 }
